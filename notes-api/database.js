@@ -13,6 +13,14 @@ db.exec(`
   )
 `);
 
+db.exec(`
+  CREATE TABLE IF NOT EXISTS users (
+    id       INTEGER PRIMARY KEY AUTOINCREMENT,
+    email    TEXT NOT NULL UNIQUE,
+    password TEXT NOT NULL
+  )
+`);
+
 // Seed some starter data so the app isn't empty
 const count = db.prepare('SELECT COUNT(*) as n FROM notes').get();
 if (count.n === 0) {
