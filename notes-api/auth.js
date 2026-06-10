@@ -17,7 +17,7 @@ const router = express.Router();
 
 // Define a secret key used to sign the JWTs. 
 // WARNING: In production, always load this from an environment file (e.g., process.env.JWT_SECRET)
-const SECRET = 'mysecretkey123'; 
+const SECRET = process.env.JWT_SECRET || 'fallback_secret';
 
 // 2. USER REGISTRATION ROUTE (POST /auth/register)
 router.post('/register', async (req, res) => {

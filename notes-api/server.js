@@ -1,10 +1,15 @@
 // 1. IMPORT DEPENDENCIES
 
+require('dotenv').config();
+
 // Import 'express' to create our web server and handle HTTP requests.
 const express = require('express');
 
 // Import our database connection file (where SQLite/better-sqlite3 is set up).
 const db = require('./database');
+
+// Import CORS middleware to allow cross-origin requests from our frontend.
+const PORT = process.env.PORT || 3001;
 
 // Import the authentication router we created. 
 // We use object destructuring and rename 'router' to 'authRouter' to avoid naming conflicts.
@@ -146,6 +151,6 @@ app.delete('/notes/:id', authenticate, (req, res) => {
 // 5. SERVER START
 
 // Tells our app to start listening for incoming internet traffic on port 3001.
-app.listen(3001, () => {
-  console.log('Notes API running at http://localhost:3001');
+app.listen(PORT, () => {
+  console.log(`Notes API running at http://localhost:${PORT}`);
 });
