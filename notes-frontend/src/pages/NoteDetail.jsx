@@ -1,49 +1,58 @@
-// useParams allows us to read dynamic parameters from the current URL (e.g., the note's ID).
-// Link allows for client-side navigation back to other pages.
 import { useParams, Link } from 'react-router-dom';
-
-// useState manages the local data (the specific note).
-// useEffect triggers the data fetching when the component loads.
 import { useState, useEffect } from 'react';
 
 function NoteDetail() {
-  // 1. DYNAMIC ROUTE PARAMS
-  // If your route is defined as /notes/:id, and the URL is /notes/5, 
-  // useParams() extracts that '5' and assigns it to the 'id' variable.
-  const { id } = useParams(); 
-
-  // 2. STATE MANAGEMENT
-  // Initialize 'note' as null because we don't have the data from the server yet.
+  // --- STATE & ROUTING ---
+  
+  // Grabs the "id" variable directly out of the browser URL path (e.g., /notes/5)
+  const { id } = useParams();
+  
+  // Holds the data for the single note we fetch from the backend (starts as null)
   const [note, setNote] = useState(null);
+  
+  // Gets the saved user token from browser storage to authorize our API call
+  const token = localStorage.getItem('token');
 
-  // 3. DATA FETCHING (SIDE EFFECT)
-  // This runs automatically when the component mounts (renders for the first time).
+  // --- SIDE EFFECTS ---
+  
+  // Automatically runs when the component loads, or if the note ID in the URL changes
   useEffect(() => {
-    // Fetch the specific note data from your Express backend using the dynamic ID
-    fetch(`http://localhost:3001/notes/${id}`)
-      .then(r => r.json())           // Parse the incoming string response into a JavaScript object
-      .then(data => setNote(data));  // Save that object into our 'note' state
-  }, [id]); // Dependency array: If the 'id' in the URL changes, re-run this effect to fetch the new note.
+    // Send a GET request to fetch only this specific note by its ID
+    fetch(`http://localhost:3001/notes/${id}`, {
+      headers: {
+        // Prove to the backend who we are by passing our security token
+        'Authorization': `Bearer ${token}`
+      }
+    })
+      .then(r => r.json())           // Convert the backend response into readable JSON
+      .then(data => setNote(data));  // Save that single note object into our React state
+  }, [id]);
 
-  // 4. CONDITIONAL RENDERING (LOADING STATE)
-  // Because fetching data takes time, 'note' will be null on the very first render.
-  // We must show a loading message, otherwise trying to read 'note.title' below will crash the app.
+  // --- CONDITIONAL RENDER ---
+  
+  // If the API request hasn't finished yet (note is still null), show this loading message
   if (!note) return <p style={{ padding: '32px' }}>Loading...</p>;
 
-  // 5. THE ACTUAL RENDER
-  // Once 'note' is no longer null, this UI renders with the fetched data.
+  // --- UI RENDERING ---
+  
+  // Once the note data arrives successfully, display it beautifully on the screen
   return (
-    <div style={{ maxWidth: '600px', margin: '0 auto', padding: '32px 16px' }}>
-      {/* Navigation link to go back to the home page */}
-      <Link to="/">← Back</Link>
+    <div style={{ maxWidth: '600px', margin: '0 auto', padding: '32px 16px', fontFamily: 'Arial, sans-serif' }}>
       
-      {/* Display the note's details dynamically */}
+      {/* Navigation link to take the user back to the main Home page dashboard */}
+      <Link to="/" style={{ color: '#3498db', fontSize: '14px' }}>← Back to notes</Link>
+      
+      {/* Note Title */}
       <h1 style={{ margin: '16px 0 8px' }}>{note.title}</h1>
-      <p style={{ color: '#666', marginBottom: '16px' }}>{note.created_at}</p>
-      <p>{note.content}</p>
+      
+      {/* Note Timestamp */}
+      <p style={{ color: '#aaa', fontSize: '12px', marginBottom: '16px' }}>{note.created_at}</p>
+      
+      {/* Main text body of the note */}
+      <p style={{ fontSize: '14px', lineHeight: '1.6' }}>{note.content}</p>
+      
     </div>
   );
 }
 
-// Export the component so it can be mapped to a route in your main router setup.
 export default NoteDetail;

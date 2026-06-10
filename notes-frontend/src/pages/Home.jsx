@@ -1,87 +1,238 @@
-// useState handles local data inputs. useEffect runs code automatically when the page loads.
 import { useState, useEffect } from 'react';
-// Link allows smooth, client-side navigation to the detail page without a full browser reload.
 import { Link } from 'react-router-dom';
 
-// The base URL of your backend Express API
+// The base URL where your backend server is running
 const API = 'http://localhost:3001';
 
-function Home() { 
-  // --- 1. STATE INITIALIZATION ---
-  const [notes, setNotes]     = useState([]);    // Stores the array of notes fetched from the database
-  const [title, setTitle]     = useState('');    // Tracks text typed inside the "Note title" input
-  const [content, setContent] = useState('');    // Tracks text typed inside the "Note content" textarea
-  const [loading, setLoading] = useState(true);  // Tracks if data is actively loading from the server
-  const [error, setError]     = useState(null);  // Stores any error messages if the server request fails
-
-  // --- 2. LIFECYCLE / SIDE EFFECTS ---
-  // The empty dependency array [] means this runs exactly ONCE right after the page first loads.
-  useEffect(() => {
-    fetchNotes();
-  }, []);
-
-  // --- 3. API MUTATION FUNCTIONS (GET, POST, DELETE) ---
+function Home() {
+  // --- STATE MANAGEMENT ---
   
-  // FETCH (GET): Pulls all notes from your backend database
+  // Holds the array of notes fetched from the backend
+  const [notes, setNotes] = useState([]);
+  
+  // Track what the user is typing into the "Add Note" form
+  const [title, setTitle] = useState('');
+  const [content, setContent] = useState('');
+  
+  // UI Status states (loading spinner and global error messages)
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  // Authentication states
+  // Grab the token from browser storage if it exists, otherwise start as null
+  const [token, setToken] = useState(localStorage.getItem('token') || null);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [authError, setAuthError] = useState('');
+  
+  // Toggles between showing the Login screen or the Registration screen
+  const [isRegistering, setIsRegistering] = useState(false);
+
+  // --- SIDE EFFECTS ---
+  
+  // This runs automatically whenever the 'token' changes.
+  // If we have a token, go grab the notes. If not, stop loading.
+  useEffect(() => {
+    if (token) fetchNotes();
+    else setLoading(false);
+  }, [token]);
+
+  // --- HELPER FUNCTIONS ---
+  
+  // Generates the standard headers needed for protected API requests
+  function authHeader() {
+    return {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}` // Sends the token to prove who we are
+    };
+  }
+
+  // --- API CALLS ---
+
+  // 1. Get all notes for the logged-in user
   async function fetchNotes() {
     try {
-      setLoading(true); // Start loading state
-      const res  = await fetch(`${API}/notes`);
+      setLoading(true);
+      const res = await fetch(`${API}/notes`, { headers: authHeader() });
+
+      // If the backend says our token is dead/expired, force a logout
+      if (res.status === 401) { logout(); return; }
+
       const data = await res.json();
-      setNotes(data);   // Save the array of notes to state, causing a re-render to display them
+
+      // Basic safety guard: ensure the backend sent an array before updating state
+      if (Array.isArray(data)) setNotes(data);
+      else setNotes([]);
+
     } catch (err) {
       setError('Could not connect to server. Is it running?');
     } finally {
-      setLoading(false); // Turn off loading message, whether request succeeded or failed
+      setLoading(false); // Stop showing the loading text
     }
   }
 
-  // ADD (POST): Submits a new note to the backend database
+  // 2. Log in an existing user
+  async function handleLogin() {
+    setAuthError(''); // Clear any previous error messages
+    try {
+      const res = await fetch(`${API}/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password })
+      });
+      const data = await res.json();
+
+      // If backend returns an error code, show the message and stop
+      if (!res.ok) { setAuthError(data.error || 'Login failed'); return; }
+
+      // Success: save the token in the browser and in our React state
+      localStorage.setItem('token', data.token);
+      setToken(data.token);
+      
+      // Clear inputs for security
+      setEmail(''); setPassword('');
+    } catch (err) {
+      setAuthError('Could not connect to server.');
+    }
+  }
+
+  // 3. Register a new user
+  async function handleRegister() {
+    setAuthError('');
+    try {
+      const res = await fetch(`${API}/auth/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password })
+      });
+      const data = await res.json();
+
+      if (!res.ok) { setAuthError(data.error || 'Register failed'); return; }
+
+      // Success: immediately log them in using the inputs they provided
+      await handleLogin();
+    } catch (err) {
+      setAuthError('Could not connect to server.');
+    }
+  }
+
+  // 4. Log out the current user
+  function logout() {
+    localStorage.removeItem('token'); // Delete token from browser storage
+    setToken(null);                   // Wipe token from state (triggers re-render to Auth view)
+    setNotes([]);                     // Clear notes out of memory
+  }
+
+  // 5. Create a new note
   async function addNote() {
-    // Prevent adding empty notes if title or content only contains spaces
+    // Prevent submitting if title or content fields are completely empty
     if (!title.trim() || !content.trim()) return;
     
     const res = await fetch(`${API}/notes`, {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ title, content }) // Send input data as a JSON string
+      method: 'POST',
+      headers: authHeader(),
+      body: JSON.stringify({ title, content })
     });
+    const newNote = await res.json();
     
-    const newNote = await res.json(); // Receive the newly saved note object (complete with its new SQL id)
-    
-    // Optimistic UI updates: Add the new note to the front of the array,
-    // then clear out the input forms so the user can type a fresh note.
+    // Add the brand new note to the top of our local state list instantly
     setNotes([newNote, ...notes]);
-    setTitle('');
-    setContent('');
+    
+    // Clear the input text boxes
+    setTitle(''); setContent('');
   }
 
-  // DELETE: Removes a note from the backend database by ID
+  // 6. Delete a specific note
   async function deleteNote(id) {
-    await fetch(`${API}/notes/${id}`, { method: 'DELETE' });
-    
-    // Filter out the deleted note from local state immediately so it vanishes from the screen
+    await fetch(`${API}/notes/${id}`, {
+      method: 'DELETE',
+      headers: authHeader()
+    });
+    // Update local state by filtering out the note we just deleted
     setNotes(notes.filter(n => n.id !== id));
   }
 
-  // --- 4. RENDER / UI ---
+  // --- UI RENDERING ---
+
+  // CONDITIONAL RENDER 1: If user is NOT logged in, show Auth Screen (Login/Register)
+  if (!token) {
+    return (
+      <div style={{ maxWidth: '400px', margin: '80px auto', padding: '32px', fontFamily: 'Arial, sans-serif', background: '#fff', borderRadius: '12px', border: '1px solid #e0e0e0' }}>
+        <h1 style={{ marginBottom: '8px', fontSize: '22px' }}>
+          {isRegistering ? 'Create account' : 'Login'}
+        </h1>
+        <p style={{ color: '#888', fontSize: '13px', marginBottom: '24px' }}>
+          {isRegistering ? 'Register to start taking notes' : 'Login to see your notes'}
+        </p>
+
+        {/* Credentials Inputs */}
+        <input
+          type="email"
+          placeholder="Email"
+          value={email}
+          onChange={e => setEmail(e.target.value)}
+          style={{ width: '100%', padding: '10px', marginBottom: '10px', borderRadius: '6px', border: '1px solid #ddd', fontSize: '14px' }}
+        />
+        <input
+          type="password"
+          placeholder="Password"
+          value={password}
+          onChange={e => setPassword(e.target.value)}
+          // UX Feature: Pressing the "Enter" key will submit the form
+          onKeyDown={e => e.key === 'Enter' && (isRegistering ? handleRegister() : handleLogin())}
+          style={{ width: '100%', padding: '10px', marginBottom: '16px', borderRadius: '6px', border: '1px solid #ddd', fontSize: '14px' }}
+        />
+
+        {/* Display Auth Errors conditionally */}
+        {authError && <p style={{ color: 'red', fontSize: '13px', marginBottom: '12px' }}>{authError}</p>}
+
+        <button
+          onClick={isRegistering ? handleRegister : handleLogin}
+          style={{ width: '100%', background: '#2c3e50', color: '#fff', border: 'none', padding: '11px', borderRadius: '6px', cursor: 'pointer', fontSize: '14px', marginBottom: '12px' }}
+        >
+          {isRegistering ? 'Register' : 'Login'}
+        </button>
+
+        {/* Toggle link to switch between Login and Register views */}
+        <p style={{ textAlign: 'center', fontSize: '13px', color: '#888' }}>
+          {isRegistering ? 'Already have an account? ' : "Don't have an account? "}
+          <span
+            onClick={() => { setIsRegistering(!isRegistering); setAuthError(''); }}
+            style={{ color: '#3498db', cursor: 'pointer' }}
+          >
+            {isRegistering ? 'Login' : 'Register'}
+          </span>
+        </p>
+      </div>
+    );
+  }
+
+  // CONDITIONAL RENDER 2: User IS logged in, show the Main Dashboard (Notes application)
   return (
     <div style={{ maxWidth: '600px', margin: '0 auto', padding: '32px 16px', fontFamily: 'Arial, sans-serif' }}>
-      <h1 style={{ marginBottom: '24px' }}>My Notes</h1>
+      
+      {/* Header Bar */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+        <h1>My Notes</h1>
+        <button
+          onClick={logout}
+          style={{ background: 'none', border: '1px solid #ddd', padding: '6px 14px', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', color: '#666' }}
+        >
+          Logout
+        </button>
+      </div>
 
-      {/* NEW NOTE INPUT FORM */}
+      {/* "Create New Note" Input Area */}
       <div style={{ background: '#f5f5f5', borderRadius: '10px', padding: '20px', marginBottom: '24px' }}>
         <input
           placeholder="Note title"
           value={title}
-          // Two-way data binding: updates 'title' state on every single keystroke
-          onChange={e => setTitle(e.target.value)} 
+          onChange={e => setTitle(e.target.value)}
           style={{ width: '100%', padding: '10px', marginBottom: '10px', borderRadius: '6px', border: '1px solid #ddd', fontSize: '14px' }}
         />
         <textarea
           placeholder="Note content"
           value={content}
-          // Two-way data binding: updates 'content' state on every single keystroke
           onChange={e => setContent(e.target.value)}
           rows={3}
           style={{ width: '100%', padding: '10px', marginBottom: '10px', borderRadius: '6px', border: '1px solid #ddd', fontSize: '14px', resize: 'vertical' }}
@@ -94,18 +245,16 @@ function Home() {
         </button>
       </div>
 
-      {/* CONDITIONAL UI MESSAGES */}
+      {/* Status Messages */}
       {loading && <p style={{ color: '#666' }}>Loading notes...</p>}
       {error   && <p style={{ color: 'red' }}>{error}</p>}
 
-      {/* NOTES LIST DISPLAY */}
-      {/* Loop through the notes array and render a UI block for each note card */}
+      {/* Notes Feed — loops over the array and renders every note */}
       {notes.map(note => (
-        // React requires a unique 'key' on the outermost element when looping with .map()
         <div key={note.id} style={{ background: '#fff', border: '1px solid #e0e0e0', borderRadius: '10px', padding: '16px', marginBottom: '12px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
             <h3 style={{ fontSize: '15px', marginBottom: '6px' }}>{note.title}</h3>
-            {/* Delete button passes the current note's unique database ID up to the delete function */}
+            {/* Delete button (displays as a red '×') */}
             <button
               onClick={() => deleteNote(note.id)}
               style={{ background: 'none', border: 'none', color: '#e74c3c', cursor: 'pointer', fontSize: '18px' }}
@@ -113,11 +262,8 @@ function Home() {
           </div>
           <p style={{ fontSize: '13px', color: '#666', marginBottom: '6px' }}>{note.content}</p>
           <p style={{ fontSize: '11px', color: '#aaa' }}>{note.created_at}</p>
-
-          {/* inside each note card div */}
-          <Link to={`/notes/${note.id}`} style={{ fontSize: '12px', color: '#3498db' }}>
-            View detail →
-          </Link>
+          {/* React-Router link pointing to a dedicated detail page for this note */}
+          <Link to={`/notes/${note.id}`} style={{ fontSize: '12px', color: '#3498db' }}>View detail →</Link>
         </div>
       ))}
     </div>
